@@ -10,23 +10,20 @@ let showCamera = false;
 let processedData = {
   activeSquares: [],
 };
-let thresholdSlider;
-let invertButton;
 
-let digitWidth;
-let digitHeight;
-let connectBtn;
+let thresholdSlider, invertButton, connectBtn;
 
-// Cached grid calculations (don't change after setup)
-let gridWidth;
-let gridHeight;
-let gridOffsetX;
-let gridOffsetY;
-let gridTextSize;
+let digitWidth,
+  digitHeight,
+  gridWidth,
+  gridHeight,
+  gridOffsetX,
+  gridOffsetY,
+  gridTextSize;
 
-let video;
-let videoBuffer;
-let lastSent = [];
+let video,
+  videoBuffer,
+  lastSent = [];
 
 // ---- SERIAL ----
 let port;
@@ -45,8 +42,10 @@ function setup() {
 }
 
 function draw() {
-  if (thresholdSlider) threshold = thresholdSlider.value();
-  background(18);
+  if (thresholdSlider) {
+    threshold = thresholdSlider.value();
+  }
+  background(11, 11, 11);
 
   generateVideo();
 
@@ -76,15 +75,19 @@ function draw() {
 function setupSerial() {
   port = createSerial();
 
-  connectBtn = createButton("Connect to Arduino");
-  connectBtn.parent("controls");
+  connectBtn = select("#connect-btn");
   connectBtn.mousePressed(() => {
     if (!port.opened()) {
       console.log("Opening WebSerial chooser…");
       port.open(57600);
+      connectBtn.html("Arduino Connected");
+      connectBtn.addClass("active");
     } else {
       console.log("Closing serial port");
       port.close();
+      connectBtn.html("Connect to Arduino");
+      connectBtn.removeClass("active");
+      arduinoReady = false;
     }
   });
 }
@@ -98,14 +101,31 @@ function setupVideo() {
 }
 
 function setupControls() {
-  thresholdSlider = createSlider(0, 1, threshold, 0.01);
-  thresholdSlider.parent("controls");
-  thresholdSlider.addClass("threshold-slider");
+  thresholdSlider = select("#threshold-slider");
+  if (thresholdSlider) {
+    thresholdSlider.value(threshold);
 
-  invertButton = createButton("Show darker areas");
-  invertButton.parent("controls");
-  invertButton.addClass("invert-toggle");
-  invertButton.mousePressed(toggleInvertDetection);
+    const sliderElement = thresholdSlider.elt;
+
+    const updateSliderFill = () => {
+      const value = parseFloat(sliderElement.value);
+      threshold = value;
+      document.documentElement.style.setProperty("--slider-value", value);
+    };
+
+    sliderElement.addEventListener("input", updateSliderFill);
+    sliderElement.addEventListener("mousemove", updateSliderFill);
+
+    document.documentElement.style.setProperty("--slider-value", threshold);
+  }
+
+  invertButton = select("#invert-btn");
+  if (invertButton) {
+    invertButton.mousePressed(toggleInvertDetection);
+    if (invertDetection) {
+      invertButton.addClass("active");
+    }
+  }
 }
 
 function calculateGridDimensions() {
@@ -139,6 +159,11 @@ function readFromSerial() {
     if (incoming.includes("READY")) {
       arduinoReady = true;
       console.log(">>> Arduino is READY, starting data stream");
+      // Update button text when Arduino confirms readiness
+      if (connectBtn) {
+        connectBtn.html("Arduino Connected");
+        connectBtn.addClass("active");
+      }
     }
   }
 }
@@ -233,14 +258,17 @@ function toggleInvertDetection() {
     invertButton.html(
       invertDetection ? "Show brighter areas" : "Show darker areas"
     );
+    if (invertDetection) {
+      invertButton.addClass("active");
+    } else {
+      invertButton.removeClass("active");
+    }
   }
 }
 
 function arraysEqual(a, b) {
-  // Fast path: same reference or both empty
   if (a === b) return true;
   if (a.length !== b.length) return false;
-  // For small arrays, simple loop is fastest
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
   }

@@ -9,7 +9,7 @@ This project consists of two main components:
 1. **JavaScript/Web Application** (p5.js): Captures video, processes it into a grid, and sends active cell data to Arduino
 2. **Arduino Firmware**: Receives data via serial communication and controls a matrix of MAX7219 7-segment display modules
 
-The system creates a 5×8 grid (40 cells) that maps directly to 40 7-segment digits arranged in 5 modules of 8 digits each.
+The system creates a controlable grid that maps directly to 7-segment digits arranged in a matrix.
 
 ## How It Works
 
@@ -18,21 +18,17 @@ The system creates a 5×8 grid (40 cells) that maps directly to 40 7-segment dig
 #### Video Processing Pipeline
 
 1. **Video Capture**: Uses p5.js `createCapture()` to access the webcam
-2. **Image Processing**:
-   - Flips the video horizontally (mirror effect)
-   - Applies threshold filter to convert to black/white
-   - Samples pixels to calculate average brightness per grid cell
+2. **Image Processing**: Applies threshold filter to convert to black/white, samples pixels to calculate average brightness per grid cell
 
 3. **Grid Analysis**:
-   - Divides the 640×480 canvas into a 5×8 grid (40 cells)
-   - Each cell corresponds to one 7-segment digit
+   - Divides the 640×480 canvas into a grid defined by the user
    - Calculates average brightness for each cell region
    - Determines if a cell is "active" based on brightness threshold
 
 4. **Data Transmission**:
    - Collects indices of active cells into an array
    - Only sends data when the array changes (optimization)
-   - Sends every 6th frame to reduce serial traffic
+   - Sends every 6th frame to reduce serial traffic (controlable by the user)
    - Uses JSON format: `[16, 2, 3, 4, 30, 1]` (array of active digit indices)
 
 #### Key Functions
@@ -58,8 +54,7 @@ The system creates a 5×8 grid (40 cells) that maps directly to 40 7-segment dig
 
 #### Hardware Setup
 
-The Arduino controls **5 MAX7219 modules**, each driving **8 7-segment digits**:
-- **Total digits**: 40 (5 modules × 8 digits)
+The Arduino controls **5 MAX7219 modules**, each driving **8 7-segment digits**
 - **Wiring**:
   - `DIN` → Pin 11 (green)
   - `CLK` → Pin 13 (orange)
@@ -96,30 +91,10 @@ The Arduino controls **5 MAX7219 modules**, each driving **8 7-segment digits**:
   - Displays "8" on the specified digit (all segments lit)
 - **`initialTest()`**: Startup sequence showing module indices
 
-#### Display Mapping
-
-The 40 digits are indexed linearly:
-- **Device 0**: Digits 0-7
-- **Device 1**: Digits 8-15
-- **Device 2**: Digits 16-23
-- **Device 3**: Digits 24-31
-- **Device 4**: Digits 32-39
-
-When a cell is active in the JavaScript grid, the corresponding digit index is sent, and Arduino displays "8" (all segments) on that digit.
-
-## Grid Mapping
-
-The JavaScript grid (5 rows × 8 cols) maps to Arduino digits (0-39):
-
-```
-Row 0: [39, 38, 37, 36, 35, 34, 33, 32]  ← Reversed
-Row 1: [31, 30, 29, 28, 27, 26, 25, 24]
-Row 2: [23, 22, 21, 20, 19, 18, 17, 16]
-Row 3: [15, 14, 13, 12, 11, 10,  9,  8]
-Row 4: [ 7,  6,  5,  4,  3,  2,  1,  0]
-```
-
-Note: The grid is reversed horizontally (right-to-left) to match the physical display layout.
+#### Display
+- When a cell is active in the JavaScript grid, the corresponding digit index is sent, and Arduino displays "8" (all segments) on that digit.
+- the JS maps to Arduino digits (0-39 in the current example)
+- The grid is reversed horizontally (right-to-left) to match the physical display layout.
 
 ## Usage
 
@@ -199,12 +174,3 @@ camera-processor/
 ### Arduino
 - LedControl - MAX7219 LED matrix driver
 - ArduinoJson - JSON parsing library
-
-## Future Enhancements
-
-- Camera selection dropdown (for multiple cameras)
-- Configurable grid size
-- Different display patterns (not just "8")
-- Color mapping for different brightness levels
-- Save/load configuration presets
-
