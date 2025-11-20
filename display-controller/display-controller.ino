@@ -1,0 +1,162 @@
+#include <LedControl.h>
+#include <ArduinoJson.h>
+
+// Wiring:
+// - DIN -> 11  || green
+// - CS  -> 12  || blue
+// - CLK -> 13  || orange
+// - CS  -> 12  || blue
+// - VCC -> 5V  || red
+// - GND -> GND || black
+
+constexpr uint8_t PIN_DIN = 11;
+constexpr uint8_t PIN_CLK = 13;
+constexpr uint8_t PIN_CS = 12;
+
+constexpr uint8_t NUM_DEVICES = 5;                                 // five modules
+constexpr uint8_t DIGITS_PER_DEVICE = 8;                           // 8 digits each
+constexpr uint8_t TOTAL_DIGITS = NUM_DEVICES * DIGITS_PER_DEVICE;  // 40
+int BASE_BRIGHTNESS = 3;                                           // normal brightness (0–15)
+int currentBrightness = BASE_BRIGHTNESS;                           // 0–15
+
+LedControl lc = LedControl(PIN_DIN, PIN_CLK, PIN_CS, NUM_DEVICES);
+unsigned long lastReadyTime = 0;
+bool firstFrameReceived = false;
+
+StaticJsonDocument<512> in;  // buffer
+
+unsigned long lastDataTime = 0;
+const unsigned long TIMEOUT = 5000;       // ms of silence before starting fade
+const unsigned long FADE_STEP_MS = 1000;  // how often to step the fade
+unsigned long lastFadeStepTime = 0;
+
+void setup() {
+  Serial.begin(57600);
+
+  for (uint8_t d = 0; d < NUM_DEVICES; d++) {
+    lc.shutdown(d, false);
+    lc.setScanLimit(d, 7);
+    lc.setIntensity(d, currentBrightness);
+    lc.clearDisplay(d);
+  }
+
+  setAllDigitsOff();
+  initialTest(NUM_DEVICES, DIGITS_PER_DEVICE);
+}
+
+
+void loop() {
+
+  // HEARTBEAT until first valid frame
+  if (!firstFrameReceived && millis() - lastReadyTime > 1000) {
+    Serial.println("READY");
+    lastReadyTime = millis();
+  }
+
+  // ---- handle incoming data ----
+  if (Serial.available()) {
+    String message = Serial.readStringUntil('\n');
+
+    in.clear();
+    DeserializationError err = deserializeJson(in, message);
+
+    if (err) {
+      // optional debug:
+      // Serial.print("JSON error: ");
+      // Serial.println(err.c_str());
+      return;
+    }
+
+    if (!in.is<JsonArray>()) {
+      // Serial.println("Not an array");
+      return;
+    }
+
+    JsonArray arr = in.as<JsonArray>();
+    firstFrameReceived = true;
+
+    // VALID DATA RECEIVED → reset timers and brightness
+    lastDataTime = millis();
+    currentBrightness = BASE_BRIGHTNESS;
+    for (uint8_t d = 0; d < NUM_DEVICES; d++) {
+      lc.setIntensity(d, currentBrightness);
+    }
+
+    setAllDigitsOff();
+
+    for (JsonVariant v : arr) {
+      int idx = v.as<int>();
+      if (idx >= 0 && idx < TOTAL_DIGITS) {
+        setDigitOn((uint8_t)idx);
+      }
+    }
+  }
+
+  // ---- fade out when idle ----
+  unsigned long now = millis();
+
+  // Only start fading after TIMEOUT has passed since last data
+  if (now - lastDataTime > TIMEOUT) {
+    // Step the fade every FADE_STEP_MS
+    if (now - lastFadeStepTime > FADE_STEP_MS) {
+      lastFadeStepTime = now;
+
+      if (currentBrightness > 0) {
+        currentBrightness--;
+        for (uint8_t d = 0; d < NUM_DEVICES; d++) {
+          lc.setIntensity(d, currentBrightness);
+        }
+      } else {
+        // once fully dim, you can also clear segments if you like
+        // setAllDigitsOff();
+      }
+    }
+  }
+}
+
+
+
+
+// ----------------- helpers -----------------
+
+void setAllDigitsOff() {
+  for (uint8_t dev = 0; dev < NUM_DEVICES; dev++) {
+    for (uint8_t d = 0; d < DIGITS_PER_DEVICE; d++) {
+      lc.setChar(dev, d, ' ', false);  // blank
+    }
+  }
+}
+
+void setDigitOn(uint8_t globalIndex) {
+  if (globalIndex >= TOTAL_DIGITS) return;
+
+  uint8_t device = globalIndex / DIGITS_PER_DEVICE;  // 0..4
+  uint8_t digit = globalIndex % DIGITS_PER_DEVICE;   // 0..7
+
+  lc.setDigit(device, digit, 8, false);  // show "8"
+}
+
+void initialTest(uint8_t numDevices, uint8_t digitsPerDevice) {
+  // show module index in all 8 digits
+  for (uint8_t d = 0; d < numDevices; d++) {
+    lc.clearDisplay(d);
+    for (uint8_t i = 0; i < digitsPerDevice; i++) {
+      lc.setDigit(d, i, d, false);  // show 0..4
+    }
+    delay(400);
+    lc.clearDisplay(d);
+  }
+
+  // quick scan test (all segments on/off)
+  for (uint8_t d = 0; d < numDevices; d++) lc.clearDisplay(d);
+
+  for (uint8_t d = 0; d < numDevices; d++) {
+    for (uint8_t i = 0; i < digitsPerDevice; i++) {
+      lc.setChar(d, i, ' ', true);
+    }
+    delay(200);
+    for (uint8_t i = 0; i < digitsPerDevice; i++) {
+      lc.setChar(d, i, ' ', false);
+    }
+  }
+}
