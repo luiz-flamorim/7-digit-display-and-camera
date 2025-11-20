@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Arduino build artifacts (if using Arduino IDE)
+display-controller/**/*.hex
+display-controller/**/*.elf
+display-controller/**/*.o
+display-controller/**/*.d
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
