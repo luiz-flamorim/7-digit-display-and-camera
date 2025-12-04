@@ -1,11 +1,11 @@
-#include <LedControl.h>
+// #include <LedControl.h>
+#include "LedControl1.h"
 #include <ArduinoJson.h>
 
 // Wiring:
 // - DIN -> 11  || green
 // - CS  -> 12  || blue
 // - CLK -> 13  || orange
-// - CS  -> 12  || blue
 // - VCC -> 5V  || red
 // - GND -> GND || black
 
@@ -13,9 +13,11 @@ constexpr uint8_t PIN_DIN = 11;
 constexpr uint8_t PIN_CLK = 13;
 constexpr uint8_t PIN_CS = 12;
 
-constexpr uint8_t NUM_DEVICES = 5;                                 // five modules
+constexpr uint8_t NUM_DEVICES = 30;                                 // 30 devices total
 constexpr uint8_t DIGITS_PER_DEVICE = 8;                           // 8 digits each
-constexpr uint8_t TOTAL_DIGITS = NUM_DEVICES * DIGITS_PER_DEVICE;  // 40
+constexpr uint8_t TOTAL_DIGITS = NUM_DEVICES * DIGITS_PER_DEVICE;  // 240 total digits
+constexpr uint8_t DEVICES_PER_ROW = 3;                             // 3 devices per row
+constexpr uint8_t NUM_ROWS = 10;                                    // 10 rows
 int BASE_BRIGHTNESS = 3;                                           // normal brightness (0–15)
 int currentBrightness = BASE_BRIGHTNESS;                           // 0–15
 
@@ -31,7 +33,7 @@ const unsigned long FADE_STEP_MS = 1000;  // how often to step the fade
 unsigned long lastFadeStepTime = 0;
 
 void setup() {
-  Serial.begin(57600);
+  Serial.begin(230400);  // Increased baud rate for faster communication
 
   for (uint8_t d = 0; d < NUM_DEVICES; d++) {
     lc.shutdown(d, false);
@@ -41,7 +43,7 @@ void setup() {
   }
 
   setAllDigitsOff();
-  initialTest(NUM_DEVICES, DIGITS_PER_DEVICE);
+  rowTest();
 }
 
 
@@ -120,10 +122,10 @@ void loop() {
 // ----------------- helpers -----------------
 
 void setAllDigitsOff() {
+  // Optimized: Use clearDisplay which is much faster - one SPI transfer per device
+  // instead of 8 individual setChar calls (8x faster)
   for (uint8_t dev = 0; dev < NUM_DEVICES; dev++) {
-    for (uint8_t d = 0; d < DIGITS_PER_DEVICE; d++) {
-      lc.setChar(dev, d, ' ', false);  // blank
-    }
+    lc.clearDisplay(dev);
   }
 }
 
@@ -134,6 +136,35 @@ void setDigitOn(uint8_t globalIndex) {
   uint8_t digit = globalIndex % DIGITS_PER_DEVICE;   // 0..7
 
   lc.setDigit(device, digit, 8, false);  // show "8"
+}
+
+void rowTest() {
+  // Clear all displays first
+  setAllDigitsOff();
+  delay(50);
+  
+  // For each row (0-9), show the row number on all devices in that row
+  for (uint8_t row = 0; row < NUM_ROWS; row++) {
+    // Calculate the first device index for this row
+    uint8_t firstDevice = row * DEVICES_PER_ROW;
+    
+    // Display the row number (0-9) on all digits of all 3 devices in this row
+    for (uint8_t devOffset = 0; devOffset < DEVICES_PER_ROW; devOffset++) {
+      uint8_t device = firstDevice + devOffset;
+      if (device < NUM_DEVICES) {
+        // Show the row number on all 8 digits of this device
+        for (uint8_t digit = 0; digit < DIGITS_PER_DEVICE; digit++) {
+          lc.setDigit(device, digit, row, false);
+        }
+      }
+    }
+    
+    delay(800);  // Show each row for 800ms
+  }
+  
+  // Clear all at the end
+  delay(500);
+  setAllDigitsOff();
 }
 
 void initialTest(uint8_t numDevices, uint8_t digitsPerDevice) {

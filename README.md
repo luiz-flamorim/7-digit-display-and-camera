@@ -1,3 +1,12 @@
+
+# Fixing
+- Chain 1: devices 0-7 (CS pin 1)
+- Chain 2: devices 8-15 (CS pin 2)
+- Chain 3: devices 16-23 (CS pin 3)
+- Chain 4: devices 24-29 (CS pin 4)
+- Create separate LedControl instances for each chain
+
+
 # Camera Processor - 7-Segment Display Matrix Controller
 
 A real-time video processing system that analyzes camera input and controls a matrix of 7-segment displays via Arduino. The system divides the camera feed into a grid, detects brightness in each cell, and activates corresponding digits on a 40-digit display matrix.
@@ -174,3 +183,4 @@ camera-processor/
 ### Arduino
 - LedControl - MAX7219 LED matrix driver
 - ArduinoJson - JSON parsing library
+

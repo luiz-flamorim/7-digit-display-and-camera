@@ -1,5 +1,5 @@
-let rows = 5;
-let cols = 8;
+let rows = 10;
+let cols = 24;
 let digitRatio = 9 / 16; // width : height for each digit
 let margin = 10;
 let gap = 5;
@@ -79,7 +79,7 @@ function setupSerial() {
   connectBtn.mousePressed(() => {
     if (!port.opened()) {
       console.log("Opening WebSerial chooser…");
-      port.open(57600);
+      port.open(230400);  // Increased baud rate to match Arduino
       connectBtn.html("Arduino Connected");
       connectBtn.addClass("active");
     } else {
