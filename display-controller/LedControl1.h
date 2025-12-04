@@ -28,10 +28,11 @@
 #define LedControl1_h
 
 #include <avr/pgmspace.h>
+#include <SPI.h>
+
 
 #if (ARDUINO >= 100)
 #include <Arduino.h>
-#include <wire.h>
 #else
 #include <WProgram.h>
 #endif
@@ -183,6 +184,13 @@ class LedControl {
          * dp	sets the decimal point.
          */
         void setChar(int addr, int digit, char value, boolean dp);
+
+        /* 
+         * Disable display test mode for a device
+         * Params:
+         * addr	address of the display to control
+         */
+        void disableDisplayTest(int addr);
 };
 
 #endif	//LedControl.h

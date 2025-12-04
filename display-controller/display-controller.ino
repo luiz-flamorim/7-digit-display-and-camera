@@ -2,15 +2,15 @@
 #include "LedControl1.h"
 #include <ArduinoJson.h>
 
-// Wiring:
-// - DIN -> 11  || green
-// - CS  -> 12  || blue
-// - CLK -> 13  || orange
+// Wiring for Arduino Mega with hardware SPI:
+// - DIN -> 51 (MOSI - hardware SPI, fixed pin)
+// - CS  -> 12  || blue (user-selectable)
+// - CLK -> 52 (SCK - hardware SPI, fixed pin)
 // - VCC -> 5V  || red
 // - GND -> GND || black
+// Note: With hardware SPI, MOSI and SCK pins are fixed by hardware
+// Only CS pin needs to be specified
 
-constexpr uint8_t PIN_DIN = 11;
-constexpr uint8_t PIN_CLK = 13;
 constexpr uint8_t PIN_CS = 12;
 
 constexpr uint8_t NUM_DEVICES = 30;                                 // 30 devices total
@@ -21,7 +21,9 @@ constexpr uint8_t NUM_ROWS = 10;                                    // 10 rows
 int BASE_BRIGHTNESS = 3;                                           // normal brightness (0–15)
 int currentBrightness = BASE_BRIGHTNESS;                           // 0–15
 
-LedControl lc = LedControl(PIN_DIN, PIN_CLK, PIN_CS, NUM_DEVICES);
+// Note: dataPin and clkPin parameters are ignored with hardware SPI
+// Hardware SPI uses fixed pins: MOSI=51, SCK=52 on Mega
+LedControl lc = LedControl(51, 52, PIN_CS, NUM_DEVICES);
 unsigned long lastReadyTime = 0;
 bool firstFrameReceived = false;
 
@@ -35,8 +37,17 @@ unsigned long lastFadeStepTime = 0;
 void setup() {
   Serial.begin(230400);  // Increased baud rate for faster communication
 
+  // Explicitly disable display test for all devices first
+  // This ensures display test mode is off before other operations
   for (uint8_t d = 0; d < NUM_DEVICES; d++) {
-    lc.shutdown(d, false);
+    lc.shutdown(d, false);  // Wake up device
+    delayMicroseconds(100);  // Small delay for command processing
+    lc.disableDisplayTest(d);  // Explicitly disable display test mode
+    delayMicroseconds(100);  // Small delay for command processing
+  }
+  
+  // Now configure all devices
+  for (uint8_t d = 0; d < NUM_DEVICES; d++) {
     lc.setScanLimit(d, 7);
     lc.setIntensity(d, currentBrightness);
     lc.clearDisplay(d);
@@ -141,7 +152,7 @@ void setDigitOn(uint8_t globalIndex) {
 void rowTest() {
   // Clear all displays first
   setAllDigitsOff();
-  delay(50);
+  delay(500);
   
   // For each row (0-9), show the row number on all devices in that row
   for (uint8_t row = 0; row < NUM_ROWS; row++) {
@@ -155,6 +166,7 @@ void rowTest() {
         // Show the row number on all 8 digits of this device
         for (uint8_t digit = 0; digit < DIGITS_PER_DEVICE; digit++) {
           lc.setDigit(device, digit, row, false);
+          delayMicroseconds(50);  // Small delay between digit updates to allow processing
         }
       }
     }

@@ -1,4 +1,3 @@
-#include <SPI.h>
 
 /*
  *    LedControl.cpp - A library for controling Leds with a MAX7219/MAX7221
@@ -46,25 +45,23 @@
 #define OP_DISPLAYTEST 15
 
 LedControl::LedControl(int dataPin, int clkPin, int csPin, int numDevices) {
-    SPI_MOSI=dataPin;
-    SPI_CLK=clkPin;
+    // With hardware SPI, dataPin and clkPin are ignored (hardware uses fixed pins)
+    // On Mega: MOSI=51, SCK=52 (fixed by hardware)
     SPI_CS=csPin;
     // Remove the 8-device restriction - allow any number of devices
     if(numDevices<=0)
         numDevices=1;  // Just ensure it's at least 1
     maxDevices=numDevices;
-    SPI.
     SPI.begin();
-    pinMode(SPI_MOSI,OUTPUT);
-    pinMode(SPI_CLK,OUTPUT);
+    // Don't call beginTransaction here - call it before each transfer in spiTransfer()
     pinMode(SPI_CS,OUTPUT);
     digitalWrite(SPI_CS,HIGH);
-    SPI_MOSI=dataPin;
     // Initialize status array for up to 30 devices (30 * 8 = 240)
     for(int i=0;i<240;i++) 
         status[i]=0x00;
     for(int i=0;i<maxDevices;i++) {
-        spiTransfer(i,OP_DISPLAYTEST,0);
+        spiTransfer(i,OP_DISPLAYTEST,0);  // Turn off display test
+        delayMicroseconds(100);  // Small delay to ensure command is processed
         //scanlimit is set to max on startup
         setScanLimit(i,7);
         //decode is done in source
@@ -195,6 +192,12 @@ void LedControl::setChar(int addr, int digit, char value, boolean dp) {
     spiTransfer(addr, digit+1,v);
 }
 
+void LedControl::disableDisplayTest(int addr) {
+    if(addr<0 || addr>=maxDevices)
+        return;
+    spiTransfer(addr, OP_DISPLAYTEST, 0);  // 0 = disable test mode
+}
+
 void LedControl::spiTransfer(int addr, volatile byte opcode, volatile byte data) {
     //Create an array with the data to shift out
     int offset=addr*2;
@@ -210,13 +213,29 @@ void LedControl::spiTransfer(int addr, volatile byte opcode, volatile byte data)
     //put our device data into the array
     spidata[offset+1]=opcode;
     spidata[offset]=data;
+    
+    // Start SPI transaction (configures SPI settings for this transfer)
+    // 2MHz speed - even more conservative for long chains of 30 devices
+    SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
+    
     //enable the line 
     digitalWrite(SPI_CS,LOW);
-    //Now shift out the data 
+    
+    //Now shift out the data (in reverse order for daisy chain)
     for(int i=maxbytes;i>0;i--)
-        shiftOut(SPI_MOSI,SPI_CLK,MSBFIRST,spidata[i-1]);
+        SPI.transfer(spidata[i-1]);
+    
     //latch the data onto the display
     digitalWrite(SPI_CS,HIGH);
+    
+    // Increased delay to ensure data is latched (especially important for long chains)
+    delayMicroseconds(10);
+    
+    // End SPI transaction (releases SPI bus)
+    SPI.endTransaction();
+    
+    // Small delay to allow MAX7219 to process the command
+    delayMicroseconds(5);
 }    
 
 
