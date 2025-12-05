@@ -39,7 +39,7 @@ let video,
 
 // Serial communication
 let port;
-let sendInterval = 500; // Send data every 100ms
+let sendInterval = 200; // interval to send data in milliseconds
 let lastSendTime = 0;
 let arduinoReady = false;
 
@@ -98,7 +98,7 @@ function setupSerial() {
   connectBtn.mousePressed(() => {
     if (!port.opened()) {
       console.log("Opening WebSerial chooser…");
-      port.open(250000);
+      port.open(57600);
       connectBtn.html("Arduino Connected");
       connectBtn.addClass("active");
     } else {
@@ -168,9 +168,9 @@ function sendDataToSerial(arr) {
   if (!port || !port.opened()) return;
   
   // Combine marker and data into a single buffer
-
+  // Format: [0xFF marker] [240 data bytes] = 241 bytes total
   const marker = 0xFF;  // Marker helps Arduino distinguish binary data from "READY" text
-  const combined = new Uint8Array(1 + arr.length);  // 1 byte for marker, arr.length bytes for data
+  const combined = new Uint8Array(1 + arr.length);  // marker + data
   combined[0] = marker;
   combined.set(arr, 1);
   
