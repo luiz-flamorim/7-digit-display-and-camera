@@ -1,5 +1,7 @@
 
-/*
+/*    The following library has been modified to support more devices.
+ *    Original library:   https://github.com/wayoda/LedControl
+ * 
  *    LedControl.cpp - A library for controling Leds with a MAX7219/MAX7221
  *    Copyright (c) 2007 Eberhard Fahle
  * 
@@ -29,7 +31,7 @@
 #include "LedControl1.h"
 
 //the opcodes for the MAX7221 and MAX7219
-#define OP_NOOP   0
+#define OP_NOOP 0
 #define OP_DIGIT0 1
 #define OP_DIGIT1 2
 #define OP_DIGIT2 3
@@ -38,204 +40,202 @@
 #define OP_DIGIT5 6
 #define OP_DIGIT6 7
 #define OP_DIGIT7 8
-#define OP_DECODEMODE  9
-#define OP_INTENSITY   10
-#define OP_SCANLIMIT   11
-#define OP_SHUTDOWN    12
+#define OP_DECODEMODE 9
+#define OP_INTENSITY 10
+#define OP_SCANLIMIT 11
+#define OP_SHUTDOWN 12
 #define OP_DISPLAYTEST 15
 
 LedControl::LedControl(int dataPin, int clkPin, int csPin, int numDevices) {
-    // With hardware SPI, dataPin and clkPin are ignored (hardware uses fixed pins)
-    // On Mega: MOSI=51, SCK=52 (fixed by hardware)
-    SPI_CS=csPin;
-    // Remove the 8-device restriction - allow any number of devices
-    if(numDevices<=0)
-        numDevices=1;  // Just ensure it's at least 1
-    maxDevices=numDevices;
-    SPI.begin();
-    // Don't call beginTransaction here - call it before each transfer in spiTransfer()
-    pinMode(SPI_CS,OUTPUT);
-    digitalWrite(SPI_CS,HIGH);
-    // Initialize status array for up to 30 devices (30 * 8 = 240)
-    for(int i=0;i<240;i++) 
-        status[i]=0x00;
-    for(int i=0;i<maxDevices;i++) {
-        spiTransfer(i,OP_DISPLAYTEST,0);  // Turn off display test
-        delayMicroseconds(100);  // Small delay to ensure command is processed
-        //scanlimit is set to max on startup
-        setScanLimit(i,7);
-        //decode is done in source
-        spiTransfer(i,OP_DECODEMODE,0);
-        clearDisplay(i);
-        //we go into shutdown-mode on startup
-        shutdown(i,true);
-    }
+  // With hardware SPI, dataPin and clkPin are ignored (hardware uses fixed pins)
+  // On Mega: MOSI=51, SCK=52 (fixed by hardware)
+  SPI_CS = csPin;
+  // Remove the 8-device restriction - allow any number of devices
+  if (numDevices <= 0)
+    numDevices = 1;  // Just ensure it's at least 1
+  maxDevices = numDevices;
+  SPI.begin();
+  // Don't call beginTransaction here - call it before each transfer in spiTransfer()
+  pinMode(SPI_CS, OUTPUT);
+  digitalWrite(SPI_CS, HIGH);
+  // Initialize status array for up to 30 devices (30 * 8 = 240)
+  for (int i = 0; i < 240; i++)
+    status[i] = 0x00;
+  for (int i = 0; i < maxDevices; i++) {
+    spiTransfer(i, OP_DISPLAYTEST, 0);  // Turn off display test
+    delayMicroseconds(100);             // Small delay to ensure command is processed
+    //scanlimit is set to max on startup
+    setScanLimit(i, 7);
+    //decode is done in source
+    spiTransfer(i, OP_DECODEMODE, 0);
+    clearDisplay(i);
+    //we go into shutdown-mode on startup
+    shutdown(i, true);
+  }
 }
 
 int LedControl::getDeviceCount() {
-    return maxDevices;
+  return maxDevices;
 }
 
 void LedControl::shutdown(int addr, bool b) {
-    if(addr<0 || addr>=maxDevices)
-        return;
-    if(b)
-        spiTransfer(addr, OP_SHUTDOWN,0);
-    else
-        spiTransfer(addr, OP_SHUTDOWN,1);
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  if (b)
+    spiTransfer(addr, OP_SHUTDOWN, 0);
+  else
+    spiTransfer(addr, OP_SHUTDOWN, 1);
 }
 
 void LedControl::setScanLimit(int addr, int limit) {
-    if(addr<0 || addr>=maxDevices)
-        return;
-    if(limit>=0 && limit<8)
-        spiTransfer(addr, OP_SCANLIMIT,limit);
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  if (limit >= 0 && limit < 8)
+    spiTransfer(addr, OP_SCANLIMIT, limit);
 }
 
 void LedControl::setIntensity(int addr, int intensity) {
-    if(addr<0 || addr>=maxDevices)
-        return;
-    if(intensity>=0 && intensity<16)	
-        spiTransfer(addr, OP_INTENSITY,intensity);
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  if (intensity >= 0 && intensity < 16)
+    spiTransfer(addr, OP_INTENSITY, intensity);
 }
 
 void LedControl::clearDisplay(int addr) {
-    int offset;
+  int offset;
 
-    if(addr<0 || addr>=maxDevices)
-        return;
-    offset=addr*8;
-    for(int i=0;i<8;i++) {
-        status[offset+i]=0;
-        spiTransfer(addr, i+1,status[offset+i]);
-    }
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  offset = addr * 8;
+  for (int i = 0; i < 8; i++) {
+    status[offset + i] = 0;
+    spiTransfer(addr, i + 1, status[offset + i]);
+  }
 }
 
 void LedControl::setLed(int addr, int row, int column, boolean state) {
-    int offset;
-    byte val=0x00;
+  int offset;
+  byte val = 0x00;
 
-    if(addr<0 || addr>=maxDevices)
-        return;
-    if(row<0 || row>7 || column<0 || column>7)
-        return;
-    offset=addr*8;
-    val=B10000000 >> column;
-    if(state)
-        status[offset+row]=status[offset+row]|val;
-    else {
-        val=~val;
-        status[offset+row]=status[offset+row]&val;
-    }
-    spiTransfer(addr, row+1,status[offset+row]);
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  if (row < 0 || row > 7 || column < 0 || column > 7)
+    return;
+  offset = addr * 8;
+  val = B10000000 >> column;
+  if (state)
+    status[offset + row] = status[offset + row] | val;
+  else {
+    val = ~val;
+    status[offset + row] = status[offset + row] & val;
+  }
+  spiTransfer(addr, row + 1, status[offset + row]);
 }
 
 void LedControl::setRow(int addr, int row, byte value) {
-    int offset;
-    if(addr<0 || addr>=maxDevices)
-        return;
-    if(row<0 || row>7)
-        return;
-    offset=addr*8;
-    status[offset+row]=value;
-    spiTransfer(addr, row+1,status[offset+row]);
+  int offset;
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  if (row < 0 || row > 7)
+    return;
+  offset = addr * 8;
+  status[offset + row] = value;
+  spiTransfer(addr, row + 1, status[offset + row]);
 }
 
 void LedControl::setColumn(int addr, int col, byte value) {
-    byte val;
+  byte val;
 
-    if(addr<0 || addr>=maxDevices)
-        return;
-    if(col<0 || col>7) 
-        return;
-    for(int row=0;row<8;row++) {
-        val=value >> (7-row);
-        val=val & 0x01;
-        setLed(addr,row,col,val);
-    }
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  if (col < 0 || col > 7)
+    return;
+  for (int row = 0; row < 8; row++) {
+    val = value >> (7 - row);
+    val = val & 0x01;
+    setLed(addr, row, col, val);
+  }
 }
 
 void LedControl::setDigit(int addr, int digit, byte value, boolean dp) {
-    int offset;
-    byte v;
+  int offset;
+  byte v;
 
-    if(addr<0 || addr>=maxDevices)
-        return;
-    if(digit<0 || digit>7 || value>15)
-        return;
-    offset=addr*8;
-    v=pgm_read_byte_near(charTable + value); 
-    if(dp)
-        v|=B10000000;
-    status[offset+digit]=v;
-    spiTransfer(addr, digit+1,v);
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  if (digit < 0 || digit > 7 || value > 15)
+    return;
+  offset = addr * 8;
+  v = pgm_read_byte_near(charTable + value);
+  if (dp)
+    v |= B10000000;
+  status[offset + digit] = v;
+  spiTransfer(addr, digit + 1, v);
 }
 
 void LedControl::setChar(int addr, int digit, char value, boolean dp) {
-    int offset;
-    byte index,v;
+  int offset;
+  byte index, v;
 
-    if(addr<0 || addr>=maxDevices)
-        return;
-    if(digit<0 || digit>7)
-        return;
-    offset=addr*8;
-    index=(byte)value;
-    if(index >127) {
-        //no defined beyond index 127, so we use the space char
-        index=32;
-    }
-    v=pgm_read_byte_near(charTable + index); 
-    if(dp)
-        v|=B10000000;
-    status[offset+digit]=v;
-    spiTransfer(addr, digit+1,v);
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  if (digit < 0 || digit > 7)
+    return;
+  offset = addr * 8;
+  index = (byte)value;
+  if (index > 127) {
+    //no defined beyond index 127, so we use the space char
+    index = 32;
+  }
+  v = pgm_read_byte_near(charTable + index);
+  if (dp)
+    v |= B10000000;
+  status[offset + digit] = v;
+  spiTransfer(addr, digit + 1, v);
 }
 
 void LedControl::disableDisplayTest(int addr) {
-    if(addr<0 || addr>=maxDevices)
-        return;
-    spiTransfer(addr, OP_DISPLAYTEST, 0);  // 0 = disable test mode
+  if (addr < 0 || addr >= maxDevices)
+    return;
+  spiTransfer(addr, OP_DISPLAYTEST, 0);  // 0 = disable test mode
 }
 
 void LedControl::spiTransfer(int addr, volatile byte opcode, volatile byte data) {
-    //Create an array with the data to shift out
-    int offset=addr*2;
-    int maxbytes=maxDevices*2;
+  //Create an array with the data to shift out
+  int offset = addr * 2;
+  int maxbytes = maxDevices * 2;
 
-    // Optimized: Only zero the bytes we need, not the entire array
-    // Zero from start to our offset, and from our offset+2 to end
-    for(int i=0; i<offset; i++)
-        spidata[i]=(byte)0;
-    for(int i=offset+2; i<maxbytes; i++)
-        spidata[i]=(byte)0;
-    
-    //put our device data into the array
-    spidata[offset+1]=opcode;
-    spidata[offset]=data;
-    
-    // Start SPI transaction (configures SPI settings for this transfer)
-    // 2MHz speed - even more conservative for long chains of 30 devices
-    SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
-    
-    //enable the line 
-    digitalWrite(SPI_CS,LOW);
-    
-    //Now shift out the data (in reverse order for daisy chain)
-    for(int i=maxbytes;i>0;i--)
-        SPI.transfer(spidata[i-1]);
-    
-    //latch the data onto the display
-    digitalWrite(SPI_CS,HIGH);
-    
-    // Increased delay to ensure data is latched (especially important for long chains)
-    delayMicroseconds(10);
-    
-    // End SPI transaction (releases SPI bus)
-    SPI.endTransaction();
-    
-    // Small delay to allow MAX7219 to process the command
-    delayMicroseconds(5);
-}    
+  // Optimized: Only zero the bytes we need, not the entire array
+  // Zero from start to our offset, and from our offset+2 to end
+  for (int i = 0; i < offset; i++)
+    spidata[i] = (byte)0;
+  for (int i = offset + 2; i < maxbytes; i++)
+    spidata[i] = (byte)0;
 
+  //put our device data into the array
+  spidata[offset + 1] = opcode;
+  spidata[offset] = data;
 
+  // Start SPI transaction (configures SPI settings for this transfer)
+  // 2MHz speed - even more conservative for long chains of 30 devices
+  SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
+
+  //enable the line
+  digitalWrite(SPI_CS, LOW);
+
+  //Now shift out the data (in reverse order for daisy chain)
+  for (int i = maxbytes; i > 0; i--)
+    SPI.transfer(spidata[i - 1]);
+
+  //latch the data onto the display
+  digitalWrite(SPI_CS, HIGH);
+
+  // Increased delay to ensure data is latched (especially important for long chains)
+  delayMicroseconds(10);
+
+  // End SPI transaction (releases SPI bus)
+  SPI.endTransaction();
+
+  // Small delay to allow MAX7219 to process the command
+  delayMicroseconds(5);
+}

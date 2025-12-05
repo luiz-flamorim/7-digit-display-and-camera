@@ -1,6 +1,6 @@
 // #include <LedControl.h>
 #include "LedControl1.h"
-#include <ArduinoJson.h>
+// ArduinoJson no longer needed - using binary bytes instead
 
 // Wiring for Arduino Mega with hardware SPI:
 // - DIN -> 51 (MOSI - hardware SPI, fixed pin)
@@ -27,15 +27,21 @@ LedControl lc = LedControl(51, 52, PIN_CS, NUM_DEVICES);
 unsigned long lastReadyTime = 0;
 bool firstFrameReceived = false;
 
-StaticJsonDocument<512> in;  // buffer
+// Buffer for binary data: 240 bytes (one per digit)
+uint8_t dataBuffer[TOTAL_DIGITS];
+const uint8_t DATA_MARKER = 0xFF;  // Marker byte sent before binary data
 
 unsigned long lastDataTime = 0;
 const unsigned long TIMEOUT = 5000;       // ms of silence before starting fade
 const unsigned long FADE_STEP_MS = 1000;  // how often to step the fade
 unsigned long lastFadeStepTime = 0;
 
+// Sync recovery: if no valid data for this long, flush buffer and resync
+const unsigned long SYNC_RECOVERY_TIMEOUT = 2000;  // 2 seconds
+unsigned long lastValidDataTime = 0;
+
 void setup() {
-  Serial.begin(230400);  // Increased baud rate for faster communication
+  Serial.begin(250000);  // Increased baud rate for faster communication
 
   // Explicitly disable display test for all devices first
   // This ensures display test mode is off before other operations
@@ -66,47 +72,116 @@ void loop() {
     lastReadyTime = millis();
   }
 
+  // ---- Sync recovery: if we haven't received valid data for a while, flush and resync ----
+  unsigned long now = millis();
+  if (firstFrameReceived && (now - lastValidDataTime > SYNC_RECOVERY_TIMEOUT)) {
+    // We're out of sync - flush the buffer completely
+    while (Serial.available() > 0) {
+      Serial.read();
+    }
+    lastValidDataTime = now; // Reset timer
+  }
+
   // ---- handle incoming data ----
   if (Serial.available()) {
-    String message = Serial.readStringUntil('\n');
+    // Check if incoming byte is the data marker (0xFF)
+    uint8_t peekByte = Serial.peek();
+    
+    if (peekByte == DATA_MARKER) {
+      // Binary data incoming: consume marker and read 240 bytes
+      Serial.read(); // Consume the marker byte
+      
+      // Read bytes incrementally as they arrive (data comes in chunks)
+      uint8_t bytesRead = 0;
+      unsigned long startWait = millis();
+      const unsigned long MAX_WAIT = 1000; // Timeout to 1000ms
+      
+      while (bytesRead < TOTAL_DIGITS && (millis() - startWait) < MAX_WAIT) {
+        // Read as many bytes as are available, up to what we need
+        while (Serial.available() > 0 && bytesRead < TOTAL_DIGITS) {
+          dataBuffer[bytesRead] = Serial.read();
+          bytesRead++;
+        }
+        
+        // If we don't have all bytes yet, wait a bit for more to arrive
+        if (bytesRead < TOTAL_DIGITS) {
+          delay(2); // Allow more bytes to accumulate
+        }
+      }
+      
+      if (bytesRead == TOTAL_DIGITS) {
+        // Validate data: bytes should only be 0 (off) or 8 (on)
+        // Reject corrupted data that has invalid values
+        bool dataValid = true;
+        for (uint8_t idx = 0; idx < TOTAL_DIGITS; idx++) {
+          if (dataBuffer[idx] != 0 && dataBuffer[idx] != 8) {
+            dataValid = false;
+            break;
+          }
+        }
+        
+        if (dataValid) {
+          // Successfully received all 240 bytes with valid data
+          firstFrameReceived = true;
+          lastValidDataTime = millis(); // Update sync timer
 
-    in.clear();
-    DeserializationError err = deserializeJson(in, message);
+          // VALID DATA RECEIVED → reset timers and brightness
+          lastDataTime = millis();
+          currentBrightness = BASE_BRIGHTNESS;
+          for (uint8_t d = 0; d < NUM_DEVICES; d++) {
+            lc.setIntensity(d, currentBrightness);
+          }
 
-    if (err) {
-      // optional debug:
-      // Serial.print("JSON error: ");
-      // Serial.println(err.c_str());
-      return;
-    }
+          // Clear ALL digits first - ensure clean state
+          setAllDigitsOff();
+          delayMicroseconds(500); // Small delay to ensure clear is complete
 
-    if (!in.is<JsonArray>()) {
-      // Serial.println("Not an array");
-      return;
-    }
-
-    JsonArray arr = in.as<JsonArray>();
-    firstFrameReceived = true;
-
-    // VALID DATA RECEIVED → reset timers and brightness
-    lastDataTime = millis();
-    currentBrightness = BASE_BRIGHTNESS;
-    for (uint8_t d = 0; d < NUM_DEVICES; d++) {
-      lc.setIntensity(d, currentBrightness);
-    }
-
-    setAllDigitsOff();
-
-    for (JsonVariant v : arr) {
-      int idx = v.as<int>();
-      if (idx >= 0 && idx < TOTAL_DIGITS) {
-        setDigitOn((uint8_t)idx);
+          // Process all 240 bytes: if byte == 8, turn on that digit
+          for (uint8_t idx = 0; idx < TOTAL_DIGITS; idx++) {
+            if (dataBuffer[idx] == 8) {
+              setDigitOn(idx);
+            }
+          }
+          
+          // Conservative buffer clearing: only clear bytes that are NOT a new marker
+          // This prevents clearing bytes from the next message if they've already started arriving
+          delay(10); // Small delay to let next message's marker arrive if it's coming
+          while (Serial.available() > 0) {
+            uint8_t nextByte = Serial.peek();
+            if (nextByte == DATA_MARKER) {
+              // Stop clearing - we've found the next message's marker
+              break;
+            }
+            Serial.read(); // Discard non-marker bytes
+          }
+        } else {
+          // Invalid data detected - reject and clear buffer
+          while (Serial.available() > 0) {
+            Serial.read();
+          }
+        }
+      } else {
+        // Not enough bytes received - partial message, clear it
+        while (Serial.available() > 0) {
+          Serial.read();
+        }
+      }
+    } else {
+      // Not the marker byte - could be leftover data or "READY" text
+      // Only discard if buffer is getting full to prevent overflow
+      if (Serial.available() > 100) {
+        // Buffer is getting full - flush it to prevent overflow
+        while (Serial.available() > 0 && Serial.peek() != DATA_MARKER) {
+          Serial.read();
+        }
+      } else {
+        // Just discard this one byte
+        Serial.read();
       }
     }
   }
 
   // ---- fade out when idle ----
-  unsigned long now = millis();
 
   // Only start fading after TIMEOUT has passed since last data
   if (now - lastDataTime > TIMEOUT) {
@@ -171,7 +246,7 @@ void rowTest() {
       }
     }
     
-    delay(800);  // Show each row for 800ms
+    delay(50);  // Show each row for 800ms
   }
   
   // Clear all at the end

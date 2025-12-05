@@ -1,11 +1,10 @@
 
-# Fixing
-- Chain 1: devices 0-7 (CS pin 1)
-- Chain 2: devices 8-15 (CS pin 2)
-- Chain 3: devices 16-23 (CS pin 3)
-- Chain 4: devices 24-29 (CS pin 4)
-- Create separate LedControl instances for each chain
+# Project in Development
 
+## Next steps
+- app.js to send a string with bytes
+- arduino to unpack the bytes, avoid looping
+- instead of counting frames, make it wait 100ms in between each message
 
 # Camera Processor - 7-Segment Display Matrix Controller
 

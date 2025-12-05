@@ -1,14 +1,26 @@
+// Grid dimensions
 let rows = 10;
 let cols = 24;
-let digitRatio = 9 / 16; // width : height for each digit
+const TOTAL_SQUARES = rows * cols; // 240
+
+// 8 Digit Display dimensions
+let digitRatio = 9 / 16;
 let margin = 10;
 let gap = 5;
+
+// Threshold for detecting active squares
 let threshold = 0.7;
 let brightnessThreshold = 128;
+
+// Sampling step for pixel analysis
 let sampleStep = 3;
+
+// Show camera feed
 let showCamera = false;
+
 let processedData = {
-  activeSquares: [],
+  // Message template with a total number of bytes equals to the number of squares: 0 = off, 8 = on
+  activeSquares: new Uint8Array(TOTAL_SQUARES).fill(0), 
 };
 
 let thresholdSlider, invertButton, connectBtn;
@@ -23,11 +35,12 @@ let digitWidth,
 
 let video,
   videoBuffer,
-  lastSent = [];
+  lastSent = new Uint8Array(TOTAL_SQUARES); // For comparison
 
-// ---- SERIAL ----
+// Serial communication
 let port;
-let sendEveryNFrames = 6;
+let sendInterval = 500; // Send data every 100ms
+let lastSendTime = 0;
 let arduinoReady = false;
 
 let invertDetection = false;
@@ -53,15 +66,21 @@ function draw() {
     image(videoBuffer, 0, 0, width, height);
   }
 
-  processedData.activeSquares = [];
+  // Reset all bytes to 0 (off)
+  processedData.activeSquares.fill(0);
   drawGrid(digitWidth, digitHeight);
 
-  // Only check serial conditions when needed
-  if (arduinoReady && port?.opened() && frameCount % sendEveryNFrames === 0) {
-    const arr = processedData.activeSquares;
-    if (!arraysEqual(arr, lastSent)) {
-      sendDataToSerial(arr);
-      lastSent = arr.slice(); // copy
+  // Send data every 100ms (time-based) and only when data changes
+  if (arduinoReady && port?.opened()) {
+    const currentTime = millis();
+    if (currentTime - lastSendTime >= sendInterval) {
+      const arr = processedData.activeSquares;
+      if (!arraysEqual(arr, lastSent)) {
+        sendDataToSerial(arr);
+        // Compare arrays to send only if it changes
+        lastSent = new Uint8Array(arr);
+      }
+      lastSendTime = currentTime;
     }
   }
 
@@ -79,7 +98,7 @@ function setupSerial() {
   connectBtn.mousePressed(() => {
     if (!port.opened()) {
       console.log("Opening WebSerial chooser…");
-      port.open(230400);  // Increased baud rate to match Arduino
+      port.open(250000);
       connectBtn.html("Arduino Connected");
       connectBtn.addClass("active");
     } else {
@@ -88,6 +107,7 @@ function setupSerial() {
       connectBtn.html("Connect to Arduino");
       connectBtn.removeClass("active");
       arduinoReady = false;
+      lastSendTime = 0; // Reset send timer on disconnect
     }
   });
 }
@@ -146,15 +166,20 @@ function calculateGridDimensions() {
 
 function sendDataToSerial(arr) {
   if (!port || !port.opened()) return;
-  const jsonString = JSON.stringify(arr);
-  // console.log("Sending to Arduino:", jsonString);
-  port.write(jsonString);
-  port.write("\n");
+  
+  // Combine marker and data into a single buffer
+
+  const marker = 0xFF;  // Marker helps Arduino distinguish binary data from "READY" text
+  const combined = new Uint8Array(1 + arr.length);  // 1 byte for marker, arr.length bytes for data
+  combined[0] = marker;
+  combined.set(arr, 1);
+  
+  port.write(combined);
 }
 
 function readFromSerial() {
   if (!port || !port.opened()) return;
-  let incoming = port.readUntil("\n");
+  let incoming = port.readUntil("\n"); // Read until newline
   if (incoming && incoming.length > 0) {
     if (incoming.includes("READY")) {
       arduinoReady = true;
@@ -197,9 +222,11 @@ function drawGrid(digitWidth, digitHeight) {
       strokeWeight(1);
       if (isActive) {
         fill(220, 40, 40, 180);
-        processedData.activeSquares.push(currentIndex);
+        processedData.activeSquares[currentIndex] = 8; // Set to 8 (B01000) for on
       } else {
         noFill();
+        // Already 0 from fill() above, but explicit for clarity
+        processedData.activeSquares[currentIndex] = 0;
       }
       rect(x, y, digitWidth, digitHeight, 2);
       pop();
@@ -268,7 +295,8 @@ function toggleInvertDetection() {
 
 function arraysEqual(a, b) {
   if (a === b) return true;
-  if (a.length !== b.length) return false;
+  if (!a || !b || a.length !== b.length) return false;
+  // Compare Uint8Array byte by byte
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
   }
