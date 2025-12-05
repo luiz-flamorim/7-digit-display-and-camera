@@ -1,7 +1,5 @@
-// #include <LedControl.h>
 #include "LedControl1.h"
 #include <string.h>  // For memcpy
-// ArduinoJson no longer needed - using binary bytes instead
 
 // Wiring for Arduino Mega with hardware SPI:
 // - DIN -> 51 (MOSI - hardware SPI, fixed pin)
@@ -14,19 +12,19 @@
 constexpr uint8_t PIN_CS = 12;
 
 // Display grid dimensions
-constexpr uint8_t NUM_ROWS = 10;                      
-constexpr uint8_t DIGITS_PER_ROW = 24;                      
-constexpr uint8_t TOTAL_DIGITS = NUM_ROWS * DIGITS_PER_ROW;  
+constexpr uint8_t NUM_ROWS = 10;
+constexpr uint8_t DIGITS_PER_ROW = 24;
+constexpr uint8_t TOTAL_DIGITS = NUM_ROWS * DIGITS_PER_ROW;
 
 // Hardware configuration
-constexpr uint8_t DIGITS_PER_DEVICE = 8; 
+constexpr uint8_t DIGITS_PER_DEVICE = 8;
 
 // Derived hardware configuration
-constexpr uint8_t DEVICES_PER_ROW = DIGITS_PER_ROW / DIGITS_PER_DEVICE;  
-constexpr uint8_t NUM_DEVICES = NUM_ROWS * DEVICES_PER_ROW;              
+constexpr uint8_t DEVICES_PER_ROW = DIGITS_PER_ROW / DIGITS_PER_DEVICE;
+constexpr uint8_t NUM_DEVICES = NUM_ROWS * DEVICES_PER_ROW;
 
-int BASE_BRIGHTNESS = 3;                  // normal brightness (0–15)
-int currentBrightness = BASE_BRIGHTNESS; 
+int BASE_BRIGHTNESS = 3;  // normal brightness (0–15)
+int currentBrightness = BASE_BRIGHTNESS;
 
 LedControl lc = LedControl(51, 52, PIN_CS, NUM_DEVICES);
 unsigned long lastReadyTime = 0;
@@ -37,34 +35,18 @@ uint8_t previousBuffer[TOTAL_DIGITS];  // Track previous frame state for selecti
 const uint8_t DATA_MARKER = 0xFF;      // Marker byte sent before binary data
 
 unsigned long lastDataTime = 0;
-const unsigned long TIMEOUT = 5000;       // ms of silence before starting fade
-const unsigned long FADE_STEP_MS = 1000;  // how often to step the fade
+const unsigned long TIMEOUT = 5000;
+const unsigned long FADE_STEP_MS = 1000;
 unsigned long lastFadeStepTime = 0;
 
-// Helper function to flush serial buffer
-void flushSerialBuffer() {
-  while (Serial.available() > 0) {
-    Serial.read();
-  }
-}
-
-// Helper function to set intensity for all devices
-void setAllIntensity(uint8_t intensity) {
-  for (uint8_t d = 0; d < NUM_DEVICES; d++) {
-    lc.setIntensity(d, intensity);
-  }
-}
-
 void setup() {
-  Serial.begin(57600);  // Increased baud rate for faster communication
+  Serial.begin(57600);
 
-  // Explicitly disable display test for all devices first
-  // This ensures display test mode is off before other operations
   for (uint8_t d = 0; d < NUM_DEVICES; d++) {
-    lc.shutdown(d, false);     // Wake up device
-    delayMicroseconds(100);    // Small delay for command processing
-    lc.disableDisplayTest(d);  // Explicitly disable display test mode
-    delayMicroseconds(100);    // Small delay for command processing
+    lc.shutdown(d, false);
+    delayMicroseconds(100);
+    lc.disableDisplayTest(d);
+    delayMicroseconds(100);
   }
 
   // Now configure all devices
@@ -73,7 +55,6 @@ void setup() {
     lc.setIntensity(d, currentBrightness);
     lc.clearDisplay(d);
   }
-  // Note: setAllDigitsOff() not needed here - already cleared above
   // Initialize previous buffer to all zeros
   for (uint8_t i = 0; i < TOTAL_DIGITS; i++) {
     previousBuffer[i] = 0;
@@ -141,20 +122,18 @@ void loop() {
               if (currentValue == 8) {
                 lc.setDigit(device, digit, 8, false);
               } else {
-                lc.setChar(device, digit, ' ', false);  // Clear this specific digit
+                lc.setChar(device, digit, ' ', false);
               }
-              // Small delay to ensure SPI command completes
               delayMicroseconds(10);
             }
           }
           delayMicroseconds(20);
         }
 
-        // Update previous buffer for next comparison (use memcpy for efficiency)
+        // Update previous buffer for next comparison (memcpy library for efficiency)
         memcpy(previousBuffer, dataBuffer, TOTAL_DIGITS);
         delayMicroseconds(100);
 
-        // Simple buffer clearing - only if buffer is getting full
         if (Serial.available() > 50) {
           while (Serial.available() > 0 && Serial.peek() != DATA_MARKER) {
             Serial.read();  // Discard non-marker bytes
@@ -163,10 +142,7 @@ void loop() {
       }
       // If not enough bytes received, just wait for next frame
     } else {
-      // Not the marker byte - could be leftover data or "READY" text
-      // Only discard if buffer is getting full to prevent overflow
       if (Serial.available() > 100) {
-        // Buffer is getting full - flush it to prevent overflow
         while (Serial.available() > 0 && Serial.peek() != DATA_MARKER) {
           Serial.read();
         }
@@ -193,9 +169,6 @@ void loop() {
   }
 }
 
-
-
-
 // ----------------- helpers -----------------
 
 void setAllDigitsOff() {
@@ -211,8 +184,6 @@ void setAllDigitsOff() {
 
 
 void rowTest() {
-  // Clear all displays first
-  // For each row (0-9), show the row number on all devices in that row
   // Display the row number (0-9) on all digits of all devices in this row
   setAllDigitsOff();
   delay(500);
@@ -233,4 +204,18 @@ void rowTest() {
 
   delay(200);
   setAllDigitsOff();
+}
+
+// Helper function to flush serial buffer
+void flushSerialBuffer() {
+  while (Serial.available() > 0) {
+    Serial.read();
+  }
+}
+
+// Helper function to set intensity for all devices
+void setAllIntensity(uint8_t intensity) {
+  for (uint8_t d = 0; d < NUM_DEVICES; d++) {
+    lc.setIntensity(d, intensity);
+  }
 }
