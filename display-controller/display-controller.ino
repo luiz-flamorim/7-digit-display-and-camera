@@ -1,5 +1,4 @@
 #include "LedControl1.h"
-#include <string.h>  // For memcpy
 
 // Wiring for Arduino Mega with hardware SPI:
 // - DIN -> 51 (MOSI - hardware SPI, fixed pin)
@@ -32,11 +31,6 @@ unsigned long lastReadyTime = 0;
 // Buffer for binary data: 30 bytes (8 bits per byte, 240 squares total)
 const uint8_t BYTES_TO_READ = 30;  // 240 squares / 8 bits = 30 bytes
 uint8_t messageBuffer[BYTES_TO_READ];
-
-unsigned long lastDataTime = 0;
-const unsigned long TIMEOUT = 5000;
-const unsigned long FADE_STEP_MS = 1000;
-unsigned long lastFadeStepTime = 0;
 
 void setup() {
   Serial.begin(57600);
@@ -114,36 +108,21 @@ void rowTest() {
   setAllDigitsOff();
 }
 
-// Helper function to flush serial buffer
-void flushSerialBuffer() {
-  while (Serial.available() > 0) {
-    Serial.read();
-  }
-}
-
-// Helper function to set intensity for all devices
-void setAllIntensity(uint8_t intensity) {
-  for (uint8_t d = 0; d < NUM_DEVICES; d++) {
-    lc.setIntensity(d, intensity);
-  }
-}
-
 // Read 30 bytes from serial (240 squares packed as 8 bits per byte)
 uint8_t * readSerialMessage() {
-  // Only read if we have exactly the right amount, or flush excess to stay in sync
   uint16_t available = Serial.available();
   
+  // Only read complete frames - exactly 30 bytes
   if (available >= BYTES_TO_READ) {
-    // If we have more than needed, flush the excess to stay in sync
+    // If we have more than 30 bytes, we're behind - skip to latest frame
     if (available > BYTES_TO_READ) {
-      // Read and discard excess bytes to get to the latest frame
+      // Discard old frames, keep only the latest 30 bytes
       uint16_t excess = available - BYTES_TO_READ;
       for (uint16_t i = 0; i < excess; i++) {
         Serial.read();
       }
     }
-    
-    // Read the 30 bytes we need
+    // Read the complete frame (30 bytes)
     for (uint8_t i = 0; i < BYTES_TO_READ; i++) {
       messageBuffer[i] = Serial.read();
     }
@@ -156,40 +135,27 @@ uint8_t * readSerialMessage() {
 void processMessage(uint8_t * bytes) {
   uint16_t squareIndex = 0;  // Track which square we're on (0-239)
   
-  // Process each of the 30 bytes
+  // Process each of the 30 bytes (240 bits total)
   for (uint8_t byteIndex = 0; byteIndex < BYTES_TO_READ; byteIndex++) {
     uint8_t byte = bytes[byteIndex];
     
     // Extract 8 bits from this byte (MSB first, as JS packs them)
     for (int8_t bit = 7; bit >= 0; bit--) {
-      // Extract bit value (0 or 1)
       bool isActive = (byte >> bit) & 1;
-      
-      // Calculate row and physical digit position
-      // JS sends: squareIndex 0 = row 0, col 23 (rightmost) → physical digit 0 (rightmost)
-      //          squareIndex 23 = row 0, col 0 (leftmost) → physical digit 23 (leftmost)
-      // Physical layout: Row 0 has digit 0 (right) to digit 23 (left)
-      // Device 0: digits 0-7 (rightmost), Device 1: digits 8-15, Device 2: digits 16-23 (leftmost)
+
       uint8_t row = squareIndex / DIGITS_PER_ROW;
-      uint8_t physicalDigit = squareIndex % DIGITS_PER_ROW;  // Direct mapping: squareIndex 0 → digit 0, etc.
-      uint8_t deviceInRow = physicalDigit / DIGITS_PER_DEVICE;  // digit 0-7 → device 0, etc.
-      uint8_t device = row * DEVICES_PER_ROW + deviceInRow;
-      uint8_t digit = physicalDigit % DIGITS_PER_DEVICE;  // digit 0 → digit 0, digit 7 → digit 7
+      uint8_t physicalDigit = squareIndex % DIGITS_PER_ROW;
+      uint8_t device = row * DEVICES_PER_ROW + (physicalDigit / DIGITS_PER_DEVICE);
+      uint8_t digit = physicalDigit % DIGITS_PER_DEVICE;
       
-      // Update display based on bit value
+      // Update display
       if (isActive) {
         lc.setDigit(device, digit, 8, false);
       } else {
-        // Explicitly clear the digit by setting it to blank
         lc.setChar(device, digit, ' ', false);
       }
       
       squareIndex++;
-      
-      // Safety check - should never exceed 240
-      if (squareIndex >= TOTAL_DIGITS) {
-        break;
-      }
     }
   }
 }

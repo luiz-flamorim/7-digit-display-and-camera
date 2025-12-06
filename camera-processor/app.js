@@ -70,24 +70,21 @@ function draw() {
   processedData.activeSquares.fill(0);
   drawGrid(digitWidth, digitHeight);
 
-  // Send data every 100ms (time-based) and only when data changes
+  // Send data every 200ms (time-based)
   if (arduinoReady && port?.opened()) {
     const currentTime = millis();
     if (currentTime - lastSendTime >= sendInterval) {
-      // const arr = processedData.activeSquares;
       let result = drawGrid(digitWidth, digitHeight);
-
-      // console.log(result);
-      port.write(result)
-
-      // if (!arraysEqual(arr, lastSent)) {
-      //   // sendDataToSerial(arr);
-      //   // Compare arrays to send only if it changes
-      //   lastSent = new Uint8Array(arr);
-      // }
-      // lastSendTime = currentTime;
+      
+      // Ensure we have exactly 30 bytes (240 squares / 8 bits = 30 bytes)
+      if (result.length === 30) {
+        port.write(result);
+      } else {
+        console.warn(`Expected 30 bytes, got ${result.length}`);
+      }
+      
+      lastSendTime = currentTime;
     }
-    
   }
 
   readFromSerial();
@@ -253,11 +250,8 @@ function drawGrid(digitWidth, digitHeight) {
       strokeWeight(1);
       if (isActive) {
         fill(220, 40, 40, 180);
-        // processedData.activeSquares[currentIndex] = 8; // Set to 8 (B01000) for on
       } else {
         noFill();
-        // Already 0 from fill() above, but explicit for clarity
-        // processedData.activeSquares[currentIndex] = 0;
       }
       rect(x, y, digitWidth, digitHeight, 2);
       pop();
@@ -277,6 +271,10 @@ function drawGrid(digitWidth, digitHeight) {
       text(currentIndex, x + digitWidth / 2, y + digitHeight / 2);
       pop();
     }
+  }
+
+  if (byteIndex > 0) {
+    result.push(byteOut);
   }
 
   return result;
