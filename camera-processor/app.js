@@ -179,9 +179,30 @@ function sendDataToSerial(arr) {
 
 function readFromSerial() {
   if (!port || !port.opened()) return;
-  let incoming = port.readUntil("\n"); // Read until newline
+  
+  // Read available bytes without blocking or consuming binary data
+  // Use readBytes() instead of readUntil() to avoid interfering with binary data
+  let incoming = port.readBytes();
   if (incoming && incoming.length > 0) {
-    if (incoming.includes("READY")) {
+    // Convert to string to check for "READY" message
+    // Only process ASCII characters (0x20-0x7E) for text messages
+    let str = '';
+    let hasBinaryData = false;
+    
+    for (let i = 0; i < incoming.length; i++) {
+      // Check for binary data marker (0xFF)
+      if (incoming[i] === 0xFF) {
+        hasBinaryData = true;
+        break; // Stop processing, binary data detected
+      }
+      // Only process printable ASCII characters for text
+      if (incoming[i] >= 0x20 && incoming[i] <= 0x7E) {
+        str += String.fromCharCode(incoming[i]);
+      }
+    }
+    
+    // Only process as text if no binary data was detected
+    if (!hasBinaryData && str.includes("READY")) {
       arduinoReady = true;
       console.log(">>> Arduino is READY, starting data stream");
       // Update button text when Arduino confirms readiness

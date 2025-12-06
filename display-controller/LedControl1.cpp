@@ -217,8 +217,7 @@ void LedControl::spiTransfer(int addr, volatile byte opcode, volatile byte data)
   spidata[offset] = data;
 
   // Start SPI transaction (configures SPI settings for this transfer)
-  // 2MHz speed - even more conservative for long chains of 30 devices
-  SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
 
   //enable the line
   digitalWrite(SPI_CS, LOW);

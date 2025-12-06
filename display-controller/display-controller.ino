@@ -60,6 +60,7 @@ void setup() {
     previousBuffer[i] = 0;
   }
   rowTest();
+  delay(1000); // Give time for test to complete before starting loop
 }
 
 
@@ -80,20 +81,18 @@ void loop() {
     if (peekByte == DATA_MARKER) {
       Serial.read();  // Consume marker byte
 
-      // Read 240 data bytes
+      // Read 240 data bytes with improved timing
       uint8_t bytesRead = 0;
       unsigned long startWait = millis();
       const unsigned long MAX_WAIT = 1000;
 
       while (bytesRead < TOTAL_DIGITS && (millis() - startWait) < MAX_WAIT) {
-        while (Serial.available() > 0 && bytesRead < TOTAL_DIGITS) {
+        if (Serial.available() > 0) {
           dataBuffer[bytesRead] = Serial.read();
           bytesRead++;
-        }
-
-        // If bytes are not available yet, wait a bit for more to arrive
-        if (bytesRead < TOTAL_DIGITS) {
-          delay(2);
+        } else {
+          // Only delay if no data available - use smaller delay
+          delayMicroseconds(500);
         }
       }
 
@@ -110,7 +109,9 @@ void loop() {
             uint8_t row = device / DEVICES_PER_ROW;
             uint8_t deviceInRow = device % DEVICES_PER_ROW;
             uint8_t col = deviceInRow * DIGITS_PER_DEVICE + digit;
-            uint8_t globalIndex = row * DIGITS_PER_ROW + col;
+            // JavaScript reverses columns, so we need to reverse it back to match
+            uint8_t reversedCol = DIGITS_PER_ROW - 1 - col;
+            uint8_t globalIndex = row * DIGITS_PER_ROW + reversedCol;
 
             if (globalIndex >= TOTAL_DIGITS) continue;  // Safety check
 
@@ -134,11 +135,22 @@ void loop() {
         memcpy(previousBuffer, dataBuffer, TOTAL_DIGITS);
         delayMicroseconds(100);
 
-        if (Serial.available() > 50) {
-          while (Serial.available() > 0 && Serial.peek() != DATA_MARKER) {
-            Serial.read();  // Discard non-marker bytes
+        // Better buffer management - only flush if buffer is really full
+        if (Serial.available() > 200) {
+          while (Serial.available() > 0) {
+            uint8_t peek = Serial.peek();
+            if (peek == DATA_MARKER) {
+              break; // Stop, found next packet
+            }
+            Serial.read(); // Discard non-marker bytes
           }
         }
+      } else {
+        // Log error for debugging if not all bytes received
+        Serial.print("ERROR: Only received ");
+        Serial.print(bytesRead);
+        Serial.print(" of ");
+        Serial.println(TOTAL_DIGITS);
       }
       // If not enough bytes received, just wait for next frame
     } else {
