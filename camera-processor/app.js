@@ -16,11 +16,11 @@ let brightnessThreshold = 128;
 let sampleStep = 3;
 
 // Show camera feed
-let showCamera = false;
+let showCamera = true;
 
 let processedData = {
   // Message template with a total number of bytes equals to the number of squares: 0 = off, 8 = on
-  activeSquares: new Uint8Array(TOTAL_SQUARES).fill(0), 
+  activeSquares: new Uint8Array(TOTAL_SQUARES).fill(0),
 };
 
 let thresholdSlider, invertButton, connectBtn;
@@ -74,14 +74,20 @@ function draw() {
   if (arduinoReady && port?.opened()) {
     const currentTime = millis();
     if (currentTime - lastSendTime >= sendInterval) {
-      const arr = processedData.activeSquares;
-      if (!arraysEqual(arr, lastSent)) {
-        sendDataToSerial(arr);
-        // Compare arrays to send only if it changes
-        lastSent = new Uint8Array(arr);
-      }
-      lastSendTime = currentTime;
+      // const arr = processedData.activeSquares;
+      let result = drawGrid(digitWidth, digitHeight);
+
+      // console.log(result);
+      port.write(result)
+
+      // if (!arraysEqual(arr, lastSent)) {
+      //   // sendDataToSerial(arr);
+      //   // Compare arrays to send only if it changes
+      //   lastSent = new Uint8Array(arr);
+      // }
+      // lastSendTime = currentTime;
     }
+    
   }
 
   readFromSerial();
@@ -164,43 +170,42 @@ function calculateGridDimensions() {
   gridTextSize = min(digitWidth, digitHeight) * 0.4;
 }
 
-function sendDataToSerial(arr) {
-  if (!port || !port.opened()) return;
-  
-  // Combine marker and data into a single buffer
-  // Format: [0xFF marker] [240 data bytes] = 241 bytes total
-  const marker = 0xFF;  // Marker helps Arduino distinguish binary data from "READY" text
-  const combined = new Uint8Array(1 + arr.length);  // marker + data
-  combined[0] = marker;
-  combined.set(arr, 1);
-  
-  port.write(combined);
-}
+// function sendDataToSerial(arr) {
+//   if (!port || !port.opened()) return;
+
+//   // Combine marker and data into a single buffer
+//   // Format: [0xFF marker] [240 data bytes] = 241 bytes total
+//   const marker = 0xff; // Marker helps Arduino distinguish binary data from "READY" text
+//   const combined = new Uint8Array(1 + arr.length); // marker + data
+//   combined[0] = marker;
+//   combined.set(arr, 1);
+
+//   port.write(combined);
+// }
 
 function readFromSerial() {
   if (!port || !port.opened()) return;
-  
+
   // Read available bytes without blocking or consuming binary data
-  // Use readBytes() instead of readUntil() to avoid interfering with binary data
   let incoming = port.readBytes();
   if (incoming && incoming.length > 0) {
     // Convert to string to check for "READY" message
     // Only process ASCII characters (0x20-0x7E) for text messages
-    let str = '';
+    let str = "";
     let hasBinaryData = false;
-    
+
     for (let i = 0; i < incoming.length; i++) {
       // Check for binary data marker (0xFF)
-      if (incoming[i] === 0xFF) {
+      if (incoming[i] === 0xff) {
         hasBinaryData = true;
         break; // Stop processing, binary data detected
       }
       // Only process printable ASCII characters for text
-      if (incoming[i] >= 0x20 && incoming[i] <= 0x7E) {
+      if (incoming[i] >= 0x20 && incoming[i] <= 0x7e) {
         str += String.fromCharCode(incoming[i]);
       }
     }
-    
+
     // Only process as text if no binary data was detected
     if (!hasBinaryData && str.includes("READY")) {
       arduinoReady = true;
@@ -216,13 +221,18 @@ function readFromSerial() {
 
 function drawGrid(digitWidth, digitHeight) {
   // Use cached grid calculations (calculated once in setup)
+  let result = [];
+
   stroke(200);
   strokeWeight(1);
   textAlign(CENTER, CENTER);
   textSize(gridTextSize);
 
+  let byteIndex = 0;
+  let byteOut = 0b00000000;
+
   for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
+    for (let col = cols - 1; col >= 0; col--) {
       let x = gridOffsetX + col * (digitWidth + gap);
       let y = gridOffsetY + row * (digitHeight + gap);
       const avgBrightness = getRegionAverageBrightness(
@@ -243,14 +253,23 @@ function drawGrid(digitWidth, digitHeight) {
       strokeWeight(1);
       if (isActive) {
         fill(220, 40, 40, 180);
-        processedData.activeSquares[currentIndex] = 8; // Set to 8 (B01000) for on
+        // processedData.activeSquares[currentIndex] = 8; // Set to 8 (B01000) for on
       } else {
         noFill();
         // Already 0 from fill() above, but explicit for clarity
-        processedData.activeSquares[currentIndex] = 0;
+        // processedData.activeSquares[currentIndex] = 0;
       }
       rect(x, y, digitWidth, digitHeight, 2);
       pop();
+
+      byteOut = byteOut << 1;
+      byteOut |= isActive ? 1 : 0;
+      byteIndex++;
+      if (byteIndex > 7) {
+        byteIndex = 0;
+        result.push(byteOut);
+        byteOut = 0b00000000;
+      }
 
       push();
       noStroke();
@@ -259,6 +278,8 @@ function drawGrid(digitWidth, digitHeight) {
       pop();
     }
   }
+
+  return result;
 }
 
 function generateVideo() {

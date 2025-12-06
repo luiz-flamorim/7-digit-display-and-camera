@@ -29,10 +29,9 @@ int currentBrightness = BASE_BRIGHTNESS;
 LedControl lc = LedControl(51, 52, PIN_CS, NUM_DEVICES);
 unsigned long lastReadyTime = 0;
 
-// Buffer for binary data: 240 bytes (one per digit)
-uint8_t dataBuffer[TOTAL_DIGITS];
-uint8_t previousBuffer[TOTAL_DIGITS];  // Track previous frame state for selective updates
-const uint8_t DATA_MARKER = 0xFF;      // Marker byte sent before binary data
+// Buffer for binary data: 30 bytes (8 bits per byte, 240 squares total)
+const uint8_t BYTES_TO_READ = 30;  // 240 squares / 8 bits = 30 bytes
+uint8_t messageBuffer[BYTES_TO_READ];
 
 unsigned long lastDataTime = 0;
 const unsigned long TIMEOUT = 5000;
@@ -55,10 +54,6 @@ void setup() {
     lc.setIntensity(d, currentBrightness);
     lc.clearDisplay(d);
   }
-  // Initialize previous buffer to all zeros
-  for (uint8_t i = 0; i < TOTAL_DIGITS; i++) {
-    previousBuffer[i] = 0;
-  }
   rowTest();
   delay(1000); // Give time for test to complete before starting loop
 }
@@ -73,112 +68,13 @@ void loop() {
     lastReadyTime = now;
   }
 
-  // ---- handle incoming data ----
-  if (Serial.available()) {
-    // Check if incoming byte is the data marker
-    uint8_t peekByte = Serial.peek();
-
-    if (peekByte == DATA_MARKER) {
-      Serial.read();  // Consume marker byte
-
-      // Read 240 data bytes with improved timing
-      uint8_t bytesRead = 0;
-      unsigned long startWait = millis();
-      const unsigned long MAX_WAIT = 1000;
-
-      while (bytesRead < TOTAL_DIGITS && (millis() - startWait) < MAX_WAIT) {
-        if (Serial.available() > 0) {
-          dataBuffer[bytesRead] = Serial.read();
-          bytesRead++;
-        } else {
-          // Only delay if no data available - use smaller delay
-          delayMicroseconds(500);
-        }
-      }
-
-      if (bytesRead == TOTAL_DIGITS) {
-        // Successfully received all 240 bytes - process data
-        lastDataTime = millis();
-        currentBrightness = BASE_BRIGHTNESS;
-        setAllIntensity(currentBrightness);
-
-        // Selective updates: Process device-by-device, only update changed digits
-        for (uint8_t device = 0; device < NUM_DEVICES; device++) {
-          for (uint8_t digit = 0; digit < DIGITS_PER_DEVICE; digit++) {
-
-            uint8_t row = device / DEVICES_PER_ROW;
-            uint8_t deviceInRow = device % DEVICES_PER_ROW;
-            uint8_t col = deviceInRow * DIGITS_PER_DEVICE + digit;
-            // JavaScript reverses columns, so we need to reverse it back to match
-            uint8_t reversedCol = DIGITS_PER_ROW - 1 - col;
-            uint8_t globalIndex = row * DIGITS_PER_ROW + reversedCol;
-
-            if (globalIndex >= TOTAL_DIGITS) continue;  // Safety check
-
-            uint8_t currentValue = dataBuffer[globalIndex];
-            uint8_t previousValue = previousBuffer[globalIndex];
-
-            // Only update if value changed
-            if (currentValue != previousValue) {
-              if (currentValue == 8) {
-                lc.setDigit(device, digit, 8, false);
-              } else {
-                lc.setChar(device, digit, ' ', false);
-              }
-              delayMicroseconds(10);
-            }
-          }
-          delayMicroseconds(20);
-        }
-
-        // Update previous buffer for next comparison (memcpy library for efficiency)
-        memcpy(previousBuffer, dataBuffer, TOTAL_DIGITS);
-        delayMicroseconds(100);
-
-        // Better buffer management - only flush if buffer is really full
-        if (Serial.available() > 200) {
-          while (Serial.available() > 0) {
-            uint8_t peek = Serial.peek();
-            if (peek == DATA_MARKER) {
-              break; // Stop, found next packet
-            }
-            Serial.read(); // Discard non-marker bytes
-          }
-        }
-      } else {
-        // Log error for debugging if not all bytes received
-        Serial.print("ERROR: Only received ");
-        Serial.print(bytesRead);
-        Serial.print(" of ");
-        Serial.println(TOTAL_DIGITS);
-      }
-      // If not enough bytes received, just wait for next frame
-    } else {
-      if (Serial.available() > 100) {
-        while (Serial.available() > 0 && Serial.peek() != DATA_MARKER) {
-          Serial.read();
-        }
-      } else {
-        // Just discard this one byte
-        Serial.read();
-      }
-    }
+  uint8_t * message = readSerialMessage();
+  
+  if (message != NULL) {
+    // Process the message and update displays
+    processMessage(message);
   }
-
-  // Fade out when idle
-  if (now - lastDataTime > TIMEOUT) {
-    if (now - lastFadeStepTime > FADE_STEP_MS) {
-      lastFadeStepTime = now;
-
-      if (currentBrightness > 0) {
-        currentBrightness--;
-        setAllIntensity(currentBrightness);
-      } else {
-        // option to set all off
-        // setAllDigitsOff();
-      }
-    }
-  }
+  
 }
 
 // ----------------- helpers -----------------
@@ -229,5 +125,71 @@ void flushSerialBuffer() {
 void setAllIntensity(uint8_t intensity) {
   for (uint8_t d = 0; d < NUM_DEVICES; d++) {
     lc.setIntensity(d, intensity);
+  }
+}
+
+// Read 30 bytes from serial (240 squares packed as 8 bits per byte)
+uint8_t * readSerialMessage() {
+  // Only read if we have exactly the right amount, or flush excess to stay in sync
+  uint16_t available = Serial.available();
+  
+  if (available >= BYTES_TO_READ) {
+    // If we have more than needed, flush the excess to stay in sync
+    if (available > BYTES_TO_READ) {
+      // Read and discard excess bytes to get to the latest frame
+      uint16_t excess = available - BYTES_TO_READ;
+      for (uint16_t i = 0; i < excess; i++) {
+        Serial.read();
+      }
+    }
+    
+    // Read the 30 bytes we need
+    for (uint8_t i = 0; i < BYTES_TO_READ; i++) {
+      messageBuffer[i] = Serial.read();
+    }
+    return messageBuffer;
+  }
+  return NULL;
+}
+
+// Process message bytes and update displays
+void processMessage(uint8_t * bytes) {
+  uint16_t squareIndex = 0;  // Track which square we're on (0-239)
+  
+  // Process each of the 30 bytes
+  for (uint8_t byteIndex = 0; byteIndex < BYTES_TO_READ; byteIndex++) {
+    uint8_t byte = bytes[byteIndex];
+    
+    // Extract 8 bits from this byte (MSB first, as JS packs them)
+    for (int8_t bit = 7; bit >= 0; bit--) {
+      // Extract bit value (0 or 1)
+      bool isActive = (byte >> bit) & 1;
+      
+      // Calculate row and physical digit position
+      // JS sends: squareIndex 0 = row 0, col 23 (rightmost) → physical digit 0 (rightmost)
+      //          squareIndex 23 = row 0, col 0 (leftmost) → physical digit 23 (leftmost)
+      // Physical layout: Row 0 has digit 0 (right) to digit 23 (left)
+      // Device 0: digits 0-7 (rightmost), Device 1: digits 8-15, Device 2: digits 16-23 (leftmost)
+      uint8_t row = squareIndex / DIGITS_PER_ROW;
+      uint8_t physicalDigit = squareIndex % DIGITS_PER_ROW;  // Direct mapping: squareIndex 0 → digit 0, etc.
+      uint8_t deviceInRow = physicalDigit / DIGITS_PER_DEVICE;  // digit 0-7 → device 0, etc.
+      uint8_t device = row * DEVICES_PER_ROW + deviceInRow;
+      uint8_t digit = physicalDigit % DIGITS_PER_DEVICE;  // digit 0 → digit 0, digit 7 → digit 7
+      
+      // Update display based on bit value
+      if (isActive) {
+        lc.setDigit(device, digit, 8, false);
+      } else {
+        // Explicitly clear the digit by setting it to blank
+        lc.setChar(device, digit, ' ', false);
+      }
+      
+      squareIndex++;
+      
+      // Safety check - should never exceed 240
+      if (squareIndex >= TOTAL_DIGITS) {
+        break;
+      }
+    }
   }
 }
